@@ -15,10 +15,12 @@ import "math/rand"
 import "sync/atomic"
 import "sync"
 
+// 选举过程最多一秒钟
 // The tester generously allows solutions to complete elections in one second
 // (much more than the paper's range of timeouts).
 const RaftElectionTimeout = 1000 * time.Millisecond
 
+// 2A 阶段初始化选举测试
 func TestInitialElection2A(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false, false)

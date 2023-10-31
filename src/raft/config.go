@@ -62,6 +62,7 @@ type config struct {
 
 var ncpu_once sync.Once
 
+// 初始化方法
 func make_config(t *testing.T, n int, unreliable bool, snapshot bool) *config {
 	ncpu_once.Do(func() {
 		if runtime.NumCPU() < 2 {
@@ -315,6 +316,7 @@ func (cfg *config) start1(i int, applier func(int, chan ApplyMsg)) {
 
 	applyCh := make(chan ApplyMsg)
 
+	// 新建raft实例
 	rf := Make(ends, i, cfg.saved[i], applyCh)
 
 	cfg.mu.Lock()
