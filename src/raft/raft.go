@@ -167,6 +167,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	if args.Term > rf.currentTerm {
 		rf.mu.Lock()
 		rf.currentTerm = args.Term
+		//fmt.Printf("ID: %v term changed to %v. Because of Receive RequestVote RPC.\n", rf.me, rf.currentTerm)
 		rf.state = FOLLOWER
 		rf.voteReceived = 0
 		rf.votedFor = args.CandidateId
@@ -218,18 +219,21 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 		rf.mu.Lock()
 		rf.state = FOLLOWER
 		rf.currentTerm = reply.Term
+		//fmt.Printf("ID: %v term changed to %v. Because of sendRequestVote RPC.\n", rf.me, rf.currentTerm)
 		rf.mu.Unlock()
 	} else {
 		// 增加当前的选票
-		if reply.VoteGrand == 1 {
-			rf.mu.Lock()
+		rf.mu.Lock()
+		if reply.VoteGrand == 1 && rf.state != LEADER {
 			rf.voteReceived++
 			n := len(rf.peers)
 			if rf.voteReceived > n/2 {
 				rf.state = LEADER
+				//fmt.Printf("ID: %v is new Leader. Its term is %v.\n", rf.me, rf.currentTerm)
 			}
-			rf.mu.Unlock()
+
 		}
+		rf.mu.Unlock()
 	}
 
 	return ok
@@ -250,9 +254,11 @@ type AppendEntriesReply struct {
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesRequst, reply *AppendEntriesReply) {
+	//fmt.Printf("ID: %v receive new Leader HeartBeat. leaderID: %v, leaderTerm: %v.\n", rf.me, args.LeaderId, args.Term)
 	if args.Term > rf.currentTerm {
 		rf.mu.Lock()
 		rf.currentTerm = args.Term
+		//fmt.Printf("ID: %v term changed to %v. Because of Receive AppendLog RPC.\n", rf.me, rf.currentTerm)
 		rf.state = FOLLOWER
 		rf.mu.Unlock()
 	}
@@ -273,10 +279,10 @@ func (rf *Raft) AppendEntries(args *AppendEntriesRequst, reply *AppendEntriesRep
 		// todo: 考虑 log
 		// 相等term统一处理成退回
 		if rf.currentTerm == args.Term {
-			rf.mu.Lock()
-			rf.state = FOLLOWER
-			rf.currentTerm = args.Term
-			rf.mu.Unlock()
+			//rf.mu.Lock()
+			//rf.state = FOLLOWER
+			//rf.currentTerm = args.Term
+			//rf.mu.Unlock()
 		}
 		reply.Term = rf.currentTerm
 	}
@@ -289,7 +295,9 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesRequst, reply *
 		rf.mu.Lock()
 		rf.state = FOLLOWER
 		rf.currentTerm = reply.Term
+		//fmt.Printf("ID: %v term changed to %v. Because of Send AppendLog RPC.\n", rf.me, rf.currentTerm)
 		rf.mu.Unlock()
+		//fmt.Printf("ID: %v, term: %v was leader but found %v term higher.\n", rf.me, rf.currentTerm, reply.Term)
 	}
 	return ok
 }
@@ -337,39 +345,50 @@ func (rf *Raft) killed() bool {
 
 func (rf *Raft) leaderHeartBeat() {
 	for rf.killed() == false && rf.state == LEADER {
-		// 每隔100ms发送一次心跳
-		time.Sleep(time.Duration(HEARTBEAT_DURATION) * time.Millisecond)
-
-		request := new(AppendEntriesRequst)
-		reply := new(AppendEntriesReply)
-		request.LeaderId = rf.me
-		request.Term = rf.currentTerm
+		//fmt.Printf("Leader %v start a round of heartBeat.\n", rf.me)
 
 		for server, _ := range rf.peers {
+			request := new(AppendEntriesRequst)
+			reply := new(AppendEntriesReply)
+			rf.mu.Lock()
+			request.LeaderId = rf.me
+			request.Term = rf.currentTerm
+			rf.mu.Unlock()
 			// 过滤自己
 			if server != rf.me {
 				go rf.sendAppendEntries(server, request, reply)
 			}
 		}
+
+		// 每隔100ms发送一次心跳
+		time.Sleep(time.Duration(HEARTBEAT_DURATION) * time.Millisecond)
 	}
 }
 
 // 实际投票操作
-func (rf *Raft) vote() {
-	request := new(RequestVoteArgs)
-	reply := new(RequestVoteReply)
+func (rf *Raft) vote(durationMs int64) {
 	rf.mu.Lock()
-	rf.currentTerm++
+	if rf.state == FOLLOWER {
+		rf.mu.Unlock()
+		return
+	}
+	rf.currentTerm = rf.currentTerm + 1
+	//fmt.Printf("ID: %v term plus one to %v. Because of Start a new vote. Its state is %v. last appendRpc time is %v.\n", rf.me, rf.currentTerm, rf.state, durationMs)
 	rf.state = CANDIDATE
 	rf.voteReceived = 1
 	rf.votedFor = rf.me
-	request.Term = rf.currentTerm
-	request.CandidateId = rf.me
 	rf.mu.Unlock()
 
 	for server, _ := range rf.peers {
 		// 过滤自己
 		if server != rf.me {
+			request := new(RequestVoteArgs)
+			reply := new(RequestVoteReply)
+			rf.mu.Lock()
+			request.Term = rf.currentTerm
+			request.CandidateId = rf.me
+			rf.mu.Unlock()
+
 			go rf.sendRequestVote(server, request, reply)
 		}
 	}
@@ -388,8 +407,19 @@ func (rf *Raft) ticker() {
 		// todo: 这是启动时的暂停时间，还是选举的暂停时间？
 		// pause for a random amount of time between 50 and 350
 		// milliseconds.
+		if rf.state == LEADER {
+			// LEADER
+			rf.leaderHeartBeat()
+			continue
+		}
+
+		rf.mu.Lock()
+		rf.state = CANDIDATE
+		rf.mu.Unlock()
 		ms := 50 + (rand.Int63() % 300)
 		time.Sleep(time.Duration(ms) * time.Millisecond)
+
+		//fmt.Printf("ID: %v has state %v.\n", rf.me, rf.state)
 
 		// check if we need a vote
 		if rf.state == LEADER {
@@ -397,18 +427,20 @@ func (rf *Raft) ticker() {
 			rf.leaderHeartBeat()
 			continue
 		} else if rf.state == FOLLOWER {
+			continue
 			// FOLLOWER
-			durationMs := int64(time.Since(rf.lastHeartBeat).Milliseconds())
-			if durationMs > ((rand.Int63() % 200) + ELECTION_TIMEOUT) {
-				// 已经超时了，需要开始一轮投票
-				rf.vote()
-			}
+			//durationMs := int64(time.Since(rf.lastHeartBeat).Milliseconds())
+			//if durationMs > ((rand.Int63() % 200) + ELECTION_TIMEOUT) {
+			//	// 已经超时了，需要开始一轮投票
+			//	//fmt.Printf("ID: %v start a new vote with term %v. since the last heartBeat is %v.\n", rf.me, rf.currentTerm, durationMs)
+			//	rf.vote()
+			//}
 		} else {
 			durationMs := int64(time.Since(rf.lastHeartBeat).Milliseconds())
 			// CANDIDATE
 			if durationMs > ((rand.Int63() % 200) + ELECTION_TIMEOUT) {
 				// 已经超时了，需要开始一轮投票
-				rf.vote()
+				rf.vote(durationMs)
 			}
 		}
 
