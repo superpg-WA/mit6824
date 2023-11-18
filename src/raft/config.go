@@ -554,6 +554,15 @@ func (cfg *config) wait(index int, n int, startTerm int) interface{} {
 // times, in case a leader fails just after Start().
 // if retry==false, calls Start() only once, in order
 // to simplify the early Lab 2B tests.
+
+/*
+做一次完整的协议
+开始时可能会选择错误的leader，在放弃后会重新提交。
+在10秒后会整个放弃。
+因为 nCommitted() 检查过，不会重新检查服务器是否同一值。
+如果retry == true，会提交命令多次。
+否则，只会调用Start函数一次。
+*/
 func (cfg *config) one(cmd interface{}, expectedServers int, retry bool) int {
 	t0 := time.Now()
 	starts := 0
@@ -569,6 +578,7 @@ func (cfg *config) one(cmd interface{}, expectedServers int, retry bool) int {
 			}
 			cfg.mu.Unlock()
 			if rf != nil {
+				//fmt.Printf("Application use Start Function. cmd to %v.\n", si)
 				index1, _, ok := rf.Start(cmd)
 				if ok {
 					index = index1
@@ -577,12 +587,15 @@ func (cfg *config) one(cmd interface{}, expectedServers int, retry bool) int {
 			}
 		}
 
+		//fmt.Printf("Start Function return. index = %v.\n", index)
+
 		if index != -1 {
 			// somebody claimed to be the leader and to have
 			// submitted our command; wait a while for agreement.
 			t1 := time.Now()
 			for time.Since(t1).Seconds() < 2 {
 				nd, cmd1 := cfg.nCommitted(index)
+				//fmt.Printf("%v servers commit the index %v.\n", nd, index)
 				if nd > 0 && nd >= expectedServers {
 					// committed
 					if cmd1 == cmd {

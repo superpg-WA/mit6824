@@ -138,7 +138,7 @@ func TestBasicAgree2B(t *testing.T) {
 		if nd > 0 {
 			t.Fatalf("some have committed before Start()")
 		}
-
+		//fmt.Printf("TestBasicAgree2B before cfg.one.\n")
 		xindex := cfg.one(index*100, servers, false)
 		if xindex != index {
 			t.Fatalf("got index %v but expected %v", xindex, index)
@@ -159,6 +159,7 @@ func TestRPCBytes2B(t *testing.T) {
 
 	cfg.one(99, servers, false)
 	bytes0 := cfg.bytesTotal()
+	//fmt.Printf("START COUNT RPC BYTES----------------------------------\n")
 
 	iters := 10
 	var sent int64 = 0
@@ -172,6 +173,7 @@ func TestRPCBytes2B(t *testing.T) {
 	}
 
 	bytes1 := cfg.bytesTotal()
+	//fmt.Printf("FINISH COUNT RPC BYTES-----------------------------------\n")
 	got := bytes1 - bytes0
 	expected := int64(servers) * sent
 	if got > expected+50000 {
@@ -187,7 +189,7 @@ func TestFollowerFailure2B(t *testing.T) {
 	cfg := make_config(t, servers, false, false)
 	defer cfg.cleanup()
 
-	cfg.begin("Test (2B): test progressive failure of followers")
+	cfg.begin("------------------------Test (2B): test progressive failure of followers------------------------")
 
 	cfg.one(101, servers, false)
 
@@ -232,13 +234,14 @@ func TestLeaderFailure2B(t *testing.T) {
 	cfg := make_config(t, servers, false, false)
 	defer cfg.cleanup()
 
-	cfg.begin("Test (2B): test failure of leaders")
+	cfg.begin("------------------------Test (2B): test failure of leaders------------------------")
 
 	cfg.one(101, servers, false)
 
 	// disconnect the first leader.
 	leader1 := cfg.checkOneLeader()
 	cfg.disconnect(leader1)
+	fmt.Printf("leader1 disconnect.\n")
 
 	// the remaining followers should elect
 	// a new leader.
@@ -273,7 +276,7 @@ func TestFailAgree2B(t *testing.T) {
 	cfg := make_config(t, servers, false, false)
 	defer cfg.cleanup()
 
-	cfg.begin("Test (2B): agreement after follower reconnects")
+	cfg.begin("------------------------Test (2B): agreement after follower reconnects------------------------")
 
 	cfg.one(101, servers, false)
 
@@ -307,7 +310,7 @@ func TestFailNoAgree2B(t *testing.T) {
 	cfg := make_config(t, servers, false, false)
 	defer cfg.cleanup()
 
-	cfg.begin("Test (2B): no agreement if too many followers disconnect")
+	cfg.begin("------------------------Test (2B): no agreement if too many followers disconnect------------------------")
 
 	cfg.one(10, servers, false)
 
@@ -358,7 +361,7 @@ func TestConcurrentStarts2B(t *testing.T) {
 	cfg := make_config(t, servers, false, false)
 	defer cfg.cleanup()
 
-	cfg.begin("Test (2B): concurrent Start()s")
+	cfg.begin("------------------------Test (2B): concurrent Start()s------------------------")
 
 	var success bool
 loop:
@@ -459,13 +462,14 @@ func TestRejoin2B(t *testing.T) {
 	cfg := make_config(t, servers, false, false)
 	defer cfg.cleanup()
 
-	cfg.begin("Test (2B): rejoin of partitioned leader")
+	cfg.begin("------------------------Test (2B): rejoin of partitioned leader------------------------")
 
 	cfg.one(101, servers, true)
 
 	// leader network failure
 	leader1 := cfg.checkOneLeader()
 	cfg.disconnect(leader1)
+	fmt.Printf("leader1 disconnect.\n")
 
 	// make old leader try to agree on some entries
 	cfg.rafts[leader1].Start(102)
@@ -478,14 +482,17 @@ func TestRejoin2B(t *testing.T) {
 	// new leader network failure
 	leader2 := cfg.checkOneLeader()
 	cfg.disconnect(leader2)
+	fmt.Printf("leader2 disconnect.\n")
 
 	// old leader connected again
 	cfg.connect(leader1)
+	fmt.Printf("leader1 reconnect.\n")
 
 	cfg.one(104, 2, true)
 
 	// all together now
 	cfg.connect(leader2)
+	fmt.Printf("leader2 reconnect.\n")
 
 	cfg.one(105, servers, true)
 
@@ -497,7 +504,7 @@ func TestBackup2B(t *testing.T) {
 	cfg := make_config(t, servers, false, false)
 	defer cfg.cleanup()
 
-	cfg.begin("Test (2B): leader backs up quickly over incorrect follower logs")
+	cfg.begin("------------------------Test (2B): leader backs up quickly over incorrect follower logs------------------------")
 
 	cfg.one(rand.Int(), servers, true)
 
@@ -569,7 +576,7 @@ func TestCount2B(t *testing.T) {
 	cfg := make_config(t, servers, false, false)
 	defer cfg.cleanup()
 
-	cfg.begin("Test (2B): RPC counts aren't too high")
+	cfg.begin("------------------------Test (2B): RPC counts aren't too high------------------------")
 
 	rpcs := func() (n int) {
 		for j := 0; j < servers; j++ {
