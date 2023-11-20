@@ -25,6 +25,10 @@ ApplyMsg：将命令追加到日志中，每个raft节点应该向服务发送Ap
 */
 
 import (
+	"6.5840/labgob"
+	"bytes"
+	"fmt"
+
 	//	"bytes"
 	"math/rand"
 	"sync"
@@ -126,12 +130,13 @@ func (rf *Raft) GetState() (int, bool) {
 func (rf *Raft) persist() {
 	// Your code here (2C).
 	// Example:
-	// w := new(bytes.Buffer)
-	// e := labgob.NewEncoder(w)
-	// e.Encode(rf.xxx)
-	// e.Encode(rf.yyy)
-	// raftstate := w.Bytes()
-	// rf.persister.Save(raftstate, nil)
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	e.Encode(rf.log)
+	e.Encode(rf.currentTerm)
+	e.Encode(rf.votedFor)
+	raftstate := w.Bytes()
+	rf.persister.Save(raftstate, nil)
 }
 
 // restore previously persisted state.
@@ -141,17 +146,20 @@ func (rf *Raft) readPersist(data []byte) {
 	}
 	// Your code here (2C).
 	// Example:
-	// r := bytes.NewBuffer(data)
-	// d := labgob.NewDecoder(r)
-	// var xxx
-	// var yyy
-	// if d.Decode(&xxx) != nil ||
-	//    d.Decode(&yyy) != nil {
-	//   error...
-	// } else {
-	//   rf.xxx = xxx
-	//   rf.yyy = yyy
-	// }
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+	var logs []LogEntry
+	var currentTerm int
+	var votedFor int
+	if d.Decode(&logs) != nil ||
+		d.Decode(&currentTerm) != nil ||
+		d.Decode(&votedFor) != nil {
+		fmt.Printf("Raft decode persist state Failure!.\n")
+	} else {
+		rf.log = logs
+		rf.currentTerm = currentTerm
+		rf.votedFor = votedFor
+	}
 }
 
 // the service says it has created a snapshot that has
@@ -188,6 +196,8 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// 1. 检查Term是否大于自己，如果大于，放弃选举，给候选人投票，更新term
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	// 函数完全调用完成后，才发起persist持久化
+	defer rf.persist()
 	//defer fmt.Printf("ID: %v receive RequestVote. serverTerm: %v, argsTerm: %v, VoteFor: %v, VoteGrant.: %v.\n", rf.me, rf.currentTerm, args.Term, rf.votedFor, reply.VoteGrand)
 
 	//fmt.Printf("ID %v term %v receive vote request from %v term %v.\n", rf.me, rf.currentTerm, args.CandidateId, args.Term)
@@ -331,6 +341,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesRequest, reply *AppendEntriesRe
 	//fmt.Printf("ID: %v receive AppendEntries. leaderID: %v, leaderTerm: %v.\n", rf.me, args.LeaderId, args.Term)
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	defer rf.persist()
 
 	// 参数的任期更小，不match
 	if args.Term < rf.currentTerm {
@@ -455,6 +466,7 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesRequest, reply 
 func (rf *Raft) appendNewLogEntry(command interface{}) LogEntry {
 	//rf.mu.Lock()
 	//defer rf.mu.Unlock()
+	//defer rf.persist()
 
 	rf.log = append(rf.log, LogEntry{
 		Index:   rf.getLastLog().Index + 1,
@@ -542,6 +554,7 @@ func (rf *Raft) replicateOneRound(peer int) {
 	//request.Entries = for()
 	rf.mu.RUnlock()
 	reply := new(AppendEntriesReply)
+	//rf.persist()
 	if rf.sendAppendEntries(peer, request, reply) {
 		rf.mu.Lock()
 		rf.handleAppendEntriesReply(peer, request, reply)
@@ -575,10 +588,12 @@ func (rf *Raft) handleAppendEntriesReply(peer int, request *AppendEntriesRequest
 		rf.currentTerm = reply.Term
 		rf.state = FOLLOWER
 		rf.votedFor = -1
+		rf.persist()
 		//fmt.Printf("leader %v term is %v smaller than peer %v term %v, become follower.\n", rf.me, rf.currentTerm, peer, reply.Term)
 		return
 	}
 
+	// 如果
 	if len(request.Entries) == 0 {
 		//fmt.Printf("Leader: %v receive heartBeat response from %v.\n", rf.me, peer)
 		return
@@ -646,6 +661,9 @@ func (rf *Raft) handleAppendEntriesReply(peer int, request *AppendEntriesRequest
 
 // 一轮心跳
 func (rf *Raft) leaderHeartBeat(isHeartBeat bool) {
+	if !isHeartBeat {
+		rf.persist()
+	}
 	for peer := range rf.peers {
 		// 过滤自己
 		if peer == rf.me {
@@ -676,7 +694,7 @@ func (rf *Raft) StartElection() {
 	rf.votedFor = rf.me
 
 	//fmt.Printf("ID: %v start a round of vote, its term is %v.\n", rf.me, rf.currentTerm)
-
+	rf.persist()
 	for peer := range rf.peers {
 		// 跳过自己
 		if peer == rf.me {
@@ -708,6 +726,7 @@ func (rf *Raft) StartElection() {
 						rf.state = FOLLOWER
 						rf.votedFor = -1
 						rf.currentTerm = reply.Term
+						rf.persist()
 					}
 				}
 			}
