@@ -77,9 +77,9 @@ type Raft struct {
 	me        int                 // this peer's index into peers[]
 	dead      int32               // set by Kill()
 
-	currentTerm int // 当前的任期 需要持久化
-	votedFor    int // 当前节点在当前任期投票给了谁，默认没有投为-1
-	state       int // 当前节点自己的状态
+	currentTerm    int         // 当前的任期 需要持久化
+	votedFor       int         // 当前节点在当前任期投票给了谁，默认没有投为-1
+	state          int         // 当前节点自己的状态
 	heartBeatTimer *time.Timer // 心跳计时器
 	electionTimer  *time.Timer // 选举计时器
 
@@ -475,7 +475,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesRequest, reply *AppendEntriesRe
 	}
 
 	// 如果leaderCommit > commitIndex 设置commitIndex为min(leaderCommit, index of last new entry)
-	rf.advanceCommitIndexForFollower(args.LeaderCommit
+	rf.advanceCommitIndexForFollower(args.LeaderCommit)
 
 	reply.Term, reply.Success = rf.currentTerm, true
 }
