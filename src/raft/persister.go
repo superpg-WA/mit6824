@@ -36,6 +36,7 @@ func (ps *Persister) Copy() *Persister {
 	return np
 }
 
+// 在只更改state的时候，需要单独持久化State，而不更改snapshot
 func (ps *Persister) SaveRaftState(raftstate []byte) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
