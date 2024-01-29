@@ -54,6 +54,7 @@ type ApplyMsg struct {
 	CommandValid bool
 	Command      interface{}
 	CommandIndex int
+	CommandTerm  int
 
 	// For 2D: 快照
 	SnapshotValid bool
@@ -94,6 +95,10 @@ type Raft struct {
 	// leader state
 	nextIndex  []int // Leader 下一次 向 Follower发送日志时，要发送的第一个日志条目的索引号 为每个服务器都维护一个变量 从最后一个开始发送
 	matchIndex []int // Follower 已复制到本地日志中，并且已经应用到状态机的日志条目的最大索引号
+}
+
+func (rf *Raft) ReadPersisterSize() int {
+	return rf.persister.RaftStateSize()
 }
 
 // return currentTerm and whether this server
@@ -151,6 +156,20 @@ func (rf *Raft) readPersist(data []byte) {
 		rf.currentTerm = currentTerm
 		rf.votedFor = votedFor
 	}
+
+	// 重启后，加载raft状态，同时恢复状态机的状态
+	//snapshot := rf.persister.ReadSnapshot()
+	//go func() {
+	//	rf.applyCh <- ApplyMsg{
+	//		CommandValid:  false,
+	//		SnapshotValid: true,
+	//		Snapshot:      snapshot,
+	//		SnapshotTerm:  rf.getFirstLog().Term,
+	//		SnapshotIndex: rf.getFirstLog().Index,
+	//	}
+	//}()
+	// 而且还要恢复原始的日志内容
+
 }
 
 // the service says it has created a snapshot that has
@@ -214,27 +233,37 @@ func (rf *Raft) InstallSnapShot(args *InstallSnapsShotRequest, reply *InstallSna
 		return
 	}
 
-	//rf.CondInstallSnapShot(args.LastIncludedTerm, args.LastIncludedIndex, args.Data)
+	fmt.Printf("Server %v receive installsnapshot from leader %v, .\n", rf.me, args.LeaderId)
+	////rf.CondInstallSnapShot(args.LastIncludedTerm, args.LastIncludedIndex, args.Data)
 	if args.LastIncludedIndex > rf.getLastLog().Index {
+		//fmt.Printf("there is a case args.LastIncludeIndex > rf.getLastLog.\n")
 		rf.log = make([]LogEntry, 1)
-	} else {
+	} else if args.LastIncludedIndex > rf.getFirstLog().Index {
+		// 更新日志状态
+		//fmt.Printf("there is a case args.LastIncludeIndex <= rf.getLastLog.\n")
 		// 快照的内容在日志数组里，缩短日志数组，避免内存泄露
 		rf.log = shrinkEntriesArray(rf.log[args.LastIncludedIndex-rf.getFirstLog().Index:])
 		rf.log[0].Command = nil
+	} else {
+		fmt.Printf("there is a case args.LastIncludeIndex <= rf.getFirstLog.\n")
 	}
 
-	rf.log[0].Term, rf.log[0].Index = args.LastIncludedTerm, args.LastIncludedIndex
-	// 不需要传送落后的日志，应用层可以通过快照获取这些信息
-	rf.lastApplied, rf.commitIndex = args.LastIncludedIndex, args.LastIncludedIndex
+	if args.LastIncludedIndex > rf.getFirstLog().Index {
+		rf.log[0].Term, rf.log[0].Index = args.LastIncludedTerm, args.LastIncludedIndex
+		// 不需要传送落后的日志，应用层可以通过快照获取这些信息
+		rf.lastApplied, rf.commitIndex = args.LastIncludedIndex, args.LastIncludedIndex
 
-	// 快照和状态更新后需要持久化
-	rf.persister.Save(rf.encodeState(), args.Data)
+		// 快照和状态更新后需要持久化
+		rf.persister.Save(rf.encodeState(), args.Data)
 
-	//fmt.Printf("ID %v accept snapShot RPC from leader %v.\n", rf.me, args.LeaderId)
-	// 快照数据是从应用层来的，必须发送到follower对应的应用从处理
+		//fmt.Printf("ID %v accept snapShot RPC from leader %v.\n", rf.me, args.LeaderId)
+		// 快照数据是从应用层来的，必须发送到follower对应的应用从处理
+
+	}
+
 	go func() {
 		rf.applyCh <- ApplyMsg{
-			Command:       false,
+			CommandValid:  false,
 			SnapshotValid: true,
 			Snapshot:      args.Data,
 			SnapshotTerm:  args.LastIncludedTerm,
@@ -254,7 +283,8 @@ func shrinkEntriesArray(array []LogEntry) []LogEntry {
 	return append([]LogEntry{}, array...)
 }
 
-// 将来服务层触发的快照
+// 服务层触发
+// 校验是否需要将快照内容恢复到服务层
 func (rf *Raft) CondInstallSnapShot(lastIncludeTerm int, lastIncludeIndex int, snapshot []byte) bool {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
@@ -509,7 +539,7 @@ func (rf *Raft) appendNewLogEntry(command interface{}) LogEntry {
 // term. the third return value is true if this server believes it is
 // the leader.
 /*
-	入参：命令 command
+	入参：命令 commanda
 	出参：命令提交后的下标 int, 任期term int, 节点是否是leader bool
 */
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
@@ -561,6 +591,7 @@ func (rf *Raft) handleInstallSnapshotReply(peer int, request *InstallSnapsShotRe
 		rf.electionTimer.Reset(RandomElectionTimeout())
 		rf.votedFor = -1
 		rf.currentTerm = reply.Term
+		rf.persist()
 		return
 	}
 
@@ -723,7 +754,9 @@ func (rf *Raft) StartElection() {
 						grantedVotes += 1
 						if grantedVotes > len(rf.peers)/2 {
 							rf.state = LEADER
-							// 选举成功后不能立刻开启一轮heartBeat
+							//fmt.Printf("Node %v beacomes the new leader.\n", rf.me)
+							// todo: 选举成功后不能立刻开启一轮heartBeat
+							//rf.leaderHeartBeat(true)
 						}
 					} else if reply.Term > rf.currentTerm {
 						// 自己过时了，退回follower
@@ -833,12 +866,24 @@ func (rf *Raft) applier() {
 				CommandValid: true,
 				Command:      entry.Command,
 				CommandIndex: entry.Index,
+				CommandTerm:  entry.Term,
 			}
 		}
 		rf.mu.Lock()
+		if rf.state == LEADER {
+			//fmt.Printf("{Node %v} applies entries %v-%v in term %v", rf.me, rf.lastApplied, commitIndex, rf.currentTerm)
+		}
 		rf.lastApplied = IntegerMax(rf.lastApplied, commitIndex)
 		rf.mu.Unlock()
 	}
+}
+
+func (rf *Raft) ReadSnapShot() []byte {
+	return rf.persister.ReadSnapshot()
+}
+
+func (rf *Raft) SnapshotIndex() int {
+	return rf.getFirstLog().Index
 }
 
 // the service or tester wants to create a Raft server. the ports
