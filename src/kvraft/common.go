@@ -61,3 +61,17 @@ type Command struct {
 	ClientId  int64
 	CommandId int64
 }
+
+func IntegerMin(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func IntegerMax(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}

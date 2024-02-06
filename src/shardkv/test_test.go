@@ -110,38 +110,41 @@ func TestJoinLeave(t *testing.T) {
 		va[i] = randstring(5)
 		ck.Put(ka[i], va[i])
 	}
+	DPrintf("here1")
 	for i := 0; i < n; i++ {
 		check(t, ck, ka[i], va[i])
 	}
-
+	DPrintf("here2")
 	cfg.join(1)
-
+	DPrintf("here3")
 	for i := 0; i < n; i++ {
 		check(t, ck, ka[i], va[i])
 		x := randstring(5)
 		ck.Append(ka[i], x)
 		va[i] += x
 	}
-
+	DPrintf("here4")
 	cfg.leave(0)
-
+	DPrintf("here5")
 	for i := 0; i < n; i++ {
 		check(t, ck, ka[i], va[i])
 		x := randstring(5)
 		ck.Append(ka[i], x)
 		va[i] += x
 	}
-
+	DPrintf("here6")
 	// allow time for shards to transfer.
 	time.Sleep(1 * time.Second)
-
+	DPrintf("here7")
 	cfg.checklogs()
+	DPrintf("here8")
 	cfg.ShutdownGroup(0)
-
+	DPrintf("here9")
 	for i := 0; i < n; i++ {
 		check(t, ck, ka[i], va[i])
+		DPrintf("here check %v", i)
 	}
-
+	DPrintf("here10")
 	fmt.Printf("  ... Passed\n")
 }
 
@@ -344,31 +347,42 @@ func TestConcurrent1(t *testing.T) {
 	cfg.leave(0)
 
 	cfg.ShutdownGroup(0)
+	DPrintf("stop group 0")
 	time.Sleep(100 * time.Millisecond)
 	cfg.ShutdownGroup(1)
+	DPrintf("stop group 1")
 	time.Sleep(100 * time.Millisecond)
 	cfg.ShutdownGroup(2)
+	DPrintf("stop group 2")
 
 	cfg.leave(2)
 
 	time.Sleep(100 * time.Millisecond)
 	cfg.StartGroup(0)
+	DPrintf("start group 0")
 	cfg.StartGroup(1)
+	DPrintf("start group 1")
 	cfg.StartGroup(2)
+	DPrintf("start group 2")
 
 	time.Sleep(100 * time.Millisecond)
 	cfg.join(0)
+	DPrintf("join group 0")
 	cfg.leave(1)
+	DPrintf("leave group 1")
 	time.Sleep(500 * time.Millisecond)
 	cfg.join(1)
+	DPrintf("join group 1")
 
 	time.Sleep(1 * time.Second)
-
+	DPrintf("after sleep 1 sec")
 	atomic.StoreInt32(&done, 1)
+	DPrintf("after modify done value")
 	for i := 0; i < n; i++ {
 		<-ch
 	}
 
+	DPrintf("all goroutines finished")
 	for i := 0; i < n; i++ {
 		check(t, ck, ka[i], va[i])
 	}

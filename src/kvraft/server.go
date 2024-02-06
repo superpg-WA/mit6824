@@ -40,7 +40,7 @@ type KVServer struct {
 	dead    int32 // set by Kill()
 
 	maxraftstate int // snapshot if log grows this big
-	lastApplied  int // 记录当前最后一个被应用的日志，以阻止状态机回滚
+	lastApplied  int // 记录当前最后一个被应用的日志，以阻止状态机回滚 需要被持久化
 
 	StateMachine   KVStateMachine             // KV状态机
 	lastOperations map[int64]OperationContext // 客户端id 2 具体操作，用于判断是否请求是否重复
@@ -214,7 +214,7 @@ func (kv *KVServer) applier() {
 				//if kv.rf.CondInstallSnapShot(message.SnapshotTerm, message.SnapshotIndex, message.Snapshot) {
 				// todo: log
 				//if _, isLeader := kv.rf.GetState(); isLeader {
-				fmt.Printf("{Node %v} tries to apply snapshot index %v.\n", kv.me, message.SnapshotIndex)
+				//fmt.Printf("{Node %v} tries to apply snapshot index %v.\n", kv.me, message.SnapshotIndex)
 				//}
 				kv.restoreSnapshot(message.Snapshot, false)
 				kv.lastApplied = message.SnapshotIndex
@@ -355,7 +355,7 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.mu.Lock()
 	kv.restoreSnapshot(kv.rf.ReadSnapShot(), true)
 	kv.lastApplied = kv.rf.SnapshotIndex()
-	fmt.Printf("server %v restarts and read state machine from persistence, SnapshotIndex: %v.\n", kv.me, kv.lastApplied)
+	//fmt.Printf("server %v restarts and read state machine from persistence, SnapshotIndex: %v.\n", kv.me, kv.lastApplied)
 	kv.mu.Unlock()
 
 	// You may need initialization code here.
