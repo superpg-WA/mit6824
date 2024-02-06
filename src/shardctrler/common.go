@@ -141,3 +141,10 @@ type Command struct {
 	ClientId  int64
 	CommandId int64
 }
+
+// 返回第一个默认配置信息，用于初始化
+func DefaultConfig() Config {
+	config := new(Config)
+	config.Groups = map[int][]string{}
+	return *config
+}
