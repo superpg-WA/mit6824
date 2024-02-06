@@ -104,6 +104,9 @@ func (rf *Raft) ReadPersisterSize() int {
 // return currentTerm and whether this server
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
 	var term int
 	var isleader bool
 	term = rf.currentTerm
@@ -184,7 +187,7 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 
 	snapshotIndex := rf.getFirstLog().Index
 	if index <= snapshotIndex {
-		fmt.Printf("ID %v refuse snapshot, because index smaller than snapshotIndex. index %v, snapshotIndex %v.\n", rf.me, index, snapshotIndex)
+		//fmt.Printf("ID %v refuse snapshot, because index smaller than snapshotIndex. index %v, snapshotIndex %v.\n", rf.me, index, snapshotIndex)
 		return
 	}
 	rf.log = shrinkEntriesArray(rf.log[index-snapshotIndex:])
@@ -233,7 +236,7 @@ func (rf *Raft) InstallSnapShot(args *InstallSnapsShotRequest, reply *InstallSna
 		return
 	}
 
-	fmt.Printf("Server %v receive installsnapshot from leader %v, .\n", rf.me, args.LeaderId)
+	//fmt.Printf("Server %v receive installsnapshot from leader %v, .\n", rf.me, args.LeaderId)
 	////rf.CondInstallSnapShot(args.LastIncludedTerm, args.LastIncludedIndex, args.Data)
 	if args.LastIncludedIndex > rf.getLastLog().Index {
 		//fmt.Printf("there is a case args.LastIncludeIndex > rf.getLastLog.\n")
@@ -245,7 +248,7 @@ func (rf *Raft) InstallSnapShot(args *InstallSnapsShotRequest, reply *InstallSna
 		rf.log = shrinkEntriesArray(rf.log[args.LastIncludedIndex-rf.getFirstLog().Index:])
 		rf.log[0].Command = nil
 	} else {
-		fmt.Printf("there is a case args.LastIncludeIndex <= rf.getFirstLog.\n")
+		//fmt.Printf("there is a case args.LastIncludeIndex <= rf.getFirstLog.\n")
 	}
 
 	if args.LastIncludedIndex > rf.getFirstLog().Index {
@@ -596,7 +599,22 @@ func (rf *Raft) handleInstallSnapshotReply(peer int, request *InstallSnapsShotRe
 	}
 
 	rf.nextIndex[peer] = request.LastIncludedIndex + 1
-	rf.matchIndex[peer] = request.LastIncludedIndex
+	rf.matchIndex[peer] = IntegerMax(rf.matchIndex[peer], request.LastIncludedIndex)
+
+	matchIndex := rf.matchIndex[peer]
+	cnt := 0
+	for server := range rf.peers {
+		if server == rf.me {
+			continue
+		}
+		if rf.matchIndex[server] >= matchIndex {
+			cnt++
+		}
+	}
+	if cnt >= (len(rf.peers) / 2) {
+		rf.commitIndex = matchIndex
+		rf.applyCond.Signal()
+	}
 }
 
 func (rf *Raft) replicateOneRound(peer int) {
@@ -670,14 +688,17 @@ func (rf *Raft) handleAppendEntriesReply(peer int, request *AppendEntriesRequest
 		} else {
 			nextIndex := reply.ConflictIndex
 			// 过于靠后的消息，无法通过log完成了，等下一次的log同步
-			if nextIndex < rf.getFirstLog().Index || reply.ConflictTerm < rf.currentTerm {
+			if nextIndex < rf.getFirstLog().Index {
 				return
 			}
-			for ; nextIndex < rf.getFirstLog().Index+len(rf.log); nextIndex++ {
-				if rf.log[nextIndex-rf.getFirstLog().Index].Term != reply.ConflictTerm {
-					break
-				}
-			}
+			//if nextIndex < rf.getFirstLog().Index || reply.ConflictTerm < rf.currentTerm {
+			//	return
+			//}
+			//for ; nextIndex < rf.getFirstLog().Index+len(rf.log); nextIndex++ {
+			//	if rf.log[nextIndex-rf.getFirstLog().Index].Term != reply.ConflictTerm {
+			//		break
+			//	}
+			//}
 			rf.nextIndex[peer] = nextIndex
 		}
 	} else {
@@ -878,11 +899,20 @@ func (rf *Raft) applier() {
 	}
 }
 
+// 空日志检测
+func (rf *Raft) HasLogInCurrentTerm() bool {
+	return rf.getLastLog().Term == rf.currentTerm
+}
+
 func (rf *Raft) ReadSnapShot() []byte {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	return rf.persister.ReadSnapshot()
 }
 
 func (rf *Raft) SnapshotIndex() int {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	return rf.getFirstLog().Index
 }
 
